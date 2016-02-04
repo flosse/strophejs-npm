@@ -523,6 +523,43 @@ return {
     return obj;
 }));
 
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define('strophe-utils', function () {
+            return factory();
+        });
+    } else {
+        // Browser globals
+        root.stropheUtils = factory();
+    }
+}(this, function () {
+
+    var utils = {
+
+        utf16to8: function (str) {
+            var i, c;
+            var out = "";
+            var len = str.length;
+            for (i = 0; i < len; i++) {
+                c = str.charCodeAt(i);
+                if ((c >= 0x0000) && (c <= 0x007F)) {
+                    out += str.charAt(i);
+                } else if (c > 0x07FF) {
+                    out += String.fromCharCode(0xE0 | ((c >> 12) & 0x0F));
+                    out += String.fromCharCode(0x80 | ((c >>  6) & 0x3F));
+                    out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+                } else {
+                    out += String.fromCharCode(0xC0 | ((c >>  6) & 0x1F));
+                    out += String.fromCharCode(0x80 | ((c >>  0) & 0x3F));
+                }
+            }
+            return out;
+        }
+
+    };
+    return utils;
+}));
+
 /*
     This program is distributed under the terms of the MIT license.
     Please see the LICENSE file for details.
@@ -531,6 +568,18 @@ return {
 */
 
 /* jshint undef: true, unused: true:, noarg: true, latedef: true */
+/* global define */
+
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define('strophe-polyfill', [], function () {
+            return factory();
+        });
+    } else {
+        // Browser globals
+        return factory();
+    }
+}(this, function () {
 
 /** PrivateFunction: Function.prototype.bind
  *  Bind a function to an instance.
@@ -613,7 +662,7 @@ if (!Array.prototype.indexOf)
             return -1;
         };
     }
-
+}));
 /*
     This program is distributed under the terms of the MIT license.
     Please see the LICENSE file for details.
@@ -630,13 +679,14 @@ if (!Array.prototype.indexOf)
             'strophe-sha1',
             'strophe-base64',
             'strophe-md5',
+            'strophe-utils',
             "strophe-polyfill"
         ], function () {
             return factory.apply(this, arguments);
         });
     } else {
         // Browser globals
-        var o = factory(root.SHA1, root.Base64, root.MD5);
+        var o = factory(root.SHA1, root.Base64, root.MD5, root.stropheUtils);
         window.Strophe =        o.Strophe;
         window.$build =         o.$build;
         window.$iq =            o.$iq;
@@ -650,7 +700,7 @@ if (!Array.prototype.indexOf)
         window.str_hmac_sha1 =  o.SHA1.str_hmac_sha1;
         window.str_sha1 =       o.SHA1.str_sha1;
     }
-}(this, function (SHA1, Base64, MD5) {
+}(this, function (SHA1, Base64, MD5, utils) {
 
 var Strophe;
 
@@ -670,7 +720,7 @@ function $build(name, attrs) { return new Strophe.Builder(name, attrs); }
 /** Function: $msg
  *  Create a Strophe.Builder with a <message/> element as the root.
  *
- *  Parmaeters:
+ *  Parameters:
  *    (Object) attrs - The <message/> element attributes in object notation.
  *
  *  Returns:
@@ -712,7 +762,7 @@ Strophe = {
      *  The version of the Strophe library. Unreleased builds will have
      *  a version of head-HASH where HASH is a partial revision.
      */
-    VERSION: "1.2.2",
+    VERSION: "1.2.4",
 
     /** Constants: XMPP Namespace Constants
      *  Common namespace constants from the XMPP RFCs and XEPs.
@@ -1074,14 +1124,16 @@ Strophe = {
                     var attr = arg[i];
                     if (typeof(attr) == "object" &&
                         typeof(attr.sort) == "function" &&
-                        attr[1] !== undefined) {
+                        attr[1] !== undefined &&
+                        attr[1] !== null) {
                         node.setAttribute(attr[0], attr[1]);
                     }
                 }
             } else if (typeof(arg) == "object") {
                 for (k in arg) {
                     if (arg.hasOwnProperty(k)) {
-                        if (arg[k] !== undefined) {
+                        if (arg[k] !== undefined &&
+                            arg[k] !== null) {
                             node.setAttribute(k, arg[k]);
                         }
                     }
@@ -1608,7 +1660,7 @@ Strophe = {
  *  XML DOM builder.
  *
  *  This object provides an interface similar to JQuery but for building
- *  DOM element easily and rapidly.  All the functions except for toString()
+ *  DOM elements easily and rapidly.  All the functions except for toString()
  *  and tree() return the object, so calls can be chained.  Here's an
  *  example using the $iq() builder helper.
  *  > $iq({to: 'you', from: 'me', type: 'get', id: '1'})
@@ -2292,12 +2344,16 @@ Strophe.Connection.prototype = {
      *  Returns:
      *    A unique string to be used for the id attribute.
      */
-    getUniqueId: function (suffix)
-    {
+    getUniqueId: function(suffix) {
+        var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0,
+                v = c == 'x' ? r : r & 0x3 | 0x8;
+            return v.toString(16);
+        });
         if (typeof(suffix) == "string" || typeof(suffix) == "number") {
-            return ++this._uniqueId + ":" + suffix;
+            return uuid + ":" + suffix;
         } else {
-            return ++this._uniqueId + "";
+            return uuid + "";
         }
     },
 
@@ -2547,6 +2603,24 @@ Strophe.Connection.prototype = {
     },
     /* jshint unused:true */
 
+    /** Function: nextValidRid
+     *  User overrideable function that receives the new valid rid.
+     *
+     *  The default function does nothing. User code can override this with
+     *  > Strophe.Connection.nextValidRid = function (rid) {
+     *  >    (user code)
+     *  > };
+     *
+     *  Parameters:
+     *    (Number) rid - The next valid rid
+     */
+    /* jshint unused:false */
+    nextValidRid: function (rid)
+    {
+        return;
+    },
+    /* jshint unused:true */
+
     /** Function: send
      *  Send a stanza.
      *
@@ -2632,7 +2706,7 @@ Strophe.Connection.prototype = {
             var acceptable = false;
             var from = stanza.getAttribute("from");
             if (from === expectedFrom ||
-               (expectedFrom === null &&
+               (!expectedFrom &&
                    (from === Strophe.getBareJidFromJid(fulljid) ||
                     from === Strophe.getDomainFromJid(fulljid) ||
                     from === fulljid))) {
@@ -3071,7 +3145,14 @@ Strophe.Connection.prototype = {
 
         this.connected = true;
 
-        var bodyWrap = this._proto._reqToData(req);
+        var bodyWrap;
+        try {
+            bodyWrap = this._proto._reqToData(req);
+        } catch (e) {
+            if (e != "badformat") { throw e; }
+            this._changeConnectStatus(Strophe.Status.CONNFAIL, 'bad-format');
+            this._doDisconnect('bad-format');
+        }
         if (!bodyWrap) { return; }
 
         if (this.xmlInput !== Strophe.Connection.prototype.xmlInput) {
@@ -3232,7 +3313,6 @@ Strophe.Connection.prototype = {
         stanza.t(Base64.encode(response));
       }
       this.send(stanza.tree());
-
       return true;
     },
 
@@ -3805,7 +3885,7 @@ Strophe.SASLPlain.prototype.onChallenge = function(connection) {
   auth_str = auth_str + connection.authcid;
   auth_str = auth_str + "\u0000";
   auth_str = auth_str + connection.pass;
-  return auth_str;
+  return utils.utf16to8(auth_str);
 };
 
 Strophe.Connection.prototype.mechanisms[Strophe.SASLPlain.prototype.name] = Strophe.SASLPlain;
@@ -3815,30 +3895,15 @@ Strophe.Connection.prototype.mechanisms[Strophe.SASLPlain.prototype.name] = Stro
  */
 Strophe.SASLSHA1 = function() {};
 
-/* TEST:
- * This is a simple example of a SCRAM-SHA-1 authentication exchange
- * when the client doesn't support channel bindings (username 'user' and
- * password 'pencil' are used):
- *
- * C: n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL
- * S: r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,
- * i=4096
- * C: c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,
- * p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=
- * S: v=rmF9pqV8S7suAoZWja4dJRkFsKQ=
- *
- */
-
 Strophe.SASLSHA1.prototype = new Strophe.SASLMechanism("SCRAM-SHA-1", true, 40);
 
 Strophe.SASLSHA1.test = function(connection) {
-  return connection.authcid !== null;
+    return connection.authcid !== null;
 };
 
 Strophe.SASLSHA1.prototype.onChallenge = function(connection, challenge, test_cnonce) {
   var cnonce = test_cnonce || MD5.hexdigest(Math.random() * 1234567890);
-
-  var auth_str = "n=" + connection.authcid;
+  var auth_str = "n=" + utils.utf16to8(connection.authcid);
   auth_str += ",r=";
   auth_str += cnonce;
 
@@ -3847,9 +3912,8 @@ Strophe.SASLSHA1.prototype.onChallenge = function(connection, challenge, test_cn
 
   auth_str = "n,," + auth_str;
 
-  this.onChallenge = function (connection, challenge)
-  {
-    var nonce, salt, iter, Hi, U, U_old, i, k;
+  this.onChallenge = function (connection, challenge) {
+    var nonce, salt, iter, Hi, U, U_old, i, k, pass;
     var clientKey, serverKey, clientSignature;
     var responseText = "c=biws,";
     var authMessage = connection._sasl_data["client-first-message-bare"] + "," +
@@ -3884,9 +3948,10 @@ Strophe.SASLSHA1.prototype.onChallenge = function(connection, challenge, test_cn
     salt = Base64.decode(salt);
     salt += "\x00\x00\x00\x01";
 
-    Hi = U_old = SHA1.core_hmac_sha1(connection.pass, salt);
+    pass = utils.utf16to8(connection.pass);
+    Hi = U_old = SHA1.core_hmac_sha1(pass, salt);
     for (i = 1; i < iter; i++) {
-      U = SHA1.core_hmac_sha1(connection.pass, SHA1.binb2str(U_old));
+      U = SHA1.core_hmac_sha1(pass, SHA1.binb2str(U_old));
       for (k = 0; k < 5; k++) {
         Hi[k] ^= U[k];
       }
@@ -3904,7 +3969,6 @@ Strophe.SASLSHA1.prototype.onChallenge = function(connection, challenge, test_cn
     }
 
     responseText += ",p=" + Base64.encode(SHA1.binb2str(clientKey));
-
     return responseText;
   }.bind(this);
 
@@ -3974,15 +4038,13 @@ Strophe.SASLMD5.prototype.onChallenge = function(connection, challenge, test_cno
     digest_uri = digest_uri + "/" + host;
   }
 
-  var A1 = MD5.hash(connection.authcid +
-                    ":" + realm + ":" + this._connection.pass) +
-    ":" + nonce + ":" + cnonce;
+  var cred = utils.utf16to8(connection.authcid + ":" + realm + ":" + this._connection.pass);
+  var A1 = MD5.hash(cred) + ":" + nonce + ":" + cnonce;
   var A2 = 'AUTHENTICATE:' + digest_uri;
 
   var responseText = "";
   responseText += 'charset=utf-8,';
-  responseText += 'username=' +
-    this._quote(connection.authcid) + ',';
+  responseText += 'username=' + this._quote(utils.utf16to8(connection.authcid)) + ',';
   responseText += 'realm=' + this._quote(realm) + ',';
   responseText += 'nonce=' + this._quote(nonce) + ',';
   responseText += 'nc=00000001,';
@@ -3994,8 +4056,7 @@ Strophe.SASLMD5.prototype.onChallenge = function(connection, challenge, test_cno
                                               MD5.hexdigest(A2)) + ",";
   responseText += 'qop=auth';
 
-  this.onChallenge = function ()
-  {
+  this.onChallenge = function () {
       return "";
   }.bind(this);
 
@@ -4096,6 +4157,7 @@ Strophe.Request.prototype = {
      *
      *  Throws:
      *    "parsererror" - A parser error occured.
+     *    "badformat" - The entity has sent XML that cannot be processed.
      *
      *  Returns:
      *    The DOM element tree of the response.
@@ -4115,8 +4177,7 @@ Strophe.Request.prototype = {
         } else if (this.xhr.responseText) {
             Strophe.error("invalid response received");
             Strophe.error("responseText: " + this.xhr.responseText);
-            Strophe.error("responseXML: " +
-                          Strophe.serialize(this.xhr.responseXML));
+            throw "badformat";
         }
 
         return node;
@@ -4235,6 +4296,8 @@ Strophe.Bosh.prototype = {
         this.sid = null;
         this.errors = 0;
         window.sessionStorage.removeItem('strophe-bosh-session');
+
+        this._conn.nextValidRid(this.rid);
     },
 
     /** PrivateFunction: _connect
@@ -4347,7 +4410,7 @@ Strophe.Bosh.prototype = {
                    session.rid &&
                    session.sid &&
                    session.jid &&
-                   (typeof jid === "undefined" || Strophe.getBareJidFromJid(session.jid) == Strophe.getBareJidFromJid(jid)))
+                   (typeof jid === "undefined" || jid === "null" || Strophe.getBareJidFromJid(session.jid) == Strophe.getBareJidFromJid(jid)))
         {
             this._conn.restored = true;
             this._attach(session.jid, session.sid, session.rid, callback, wait, hold, wind);
@@ -4440,6 +4503,8 @@ Strophe.Bosh.prototype = {
         this.sid = null;
         this.rid = Math.floor(Math.random() * 4294967295);
         window.sessionStorage.removeItem('strophe-bosh-session');
+
+        this._conn.nextValidRid(this.rid);
     },
 
     /** PrivateFunction: _emptyQueue
@@ -4650,6 +4715,9 @@ Strophe.Bosh.prototype = {
                      this._requests[0].age() > Math.floor(Strophe.SECONDARY_TIMEOUT * this.wait))) {
                     this._restartRequest(0);
                 }
+
+                this._conn.nextValidRid(Number(req.rid) + 1);
+
                 // call handler
                 Strophe.debug("request id " +
                               req.id + "." +
@@ -5233,7 +5301,7 @@ Strophe.Websocket.prototype = {
             if (pres) {
                 this._conn.send(pres);
             }
-            var close = $build("close", { "xmlns": Strophe.NS.FRAMING, });
+            var close = $build("close", { "xmlns": Strophe.NS.FRAMING });
             this._conn.xmlOutput(close);
             var closeString = Strophe.serialize(close);
             this._conn.rawOutput(closeString);
@@ -5476,9 +5544,29 @@ Strophe.Websocket.prototype = {
 return Strophe;
 }));
 
+(function(root){
+    if(typeof define === 'function' && define.amd){
+        define("strophe", [
+            "strophe-core",
+            "strophe-bosh",
+            "strophe-websocket"
+        ], function (wrapper) {
+            return wrapper;
+        });
+    }
+})(this);
+
 /* jshint ignore:start */
 if (callback) {
-    return callback(Strophe, $build, $msg, $iq, $pres);
+    if(typeof define === 'function' && define.amd){
+        //For backwards compatability
+        var n_callback = callback;
+        require(["strophe"],function(o){
+            n_callback(o.Strophe,o.$build,o.$msg,o.$iq,o.$pres);
+        });
+    }else{
+        return callback(Strophe, $build, $msg, $iq, $pres);
+    }
 }
 
 
